@@ -49,6 +49,8 @@ export function RenderText(ctx: CanvasRenderingContext2D, text: string, x: numbe
 }
 
 export function RenderParagraph(ctx: CanvasRenderingContext2D, text: string, x: number, y: number, w: number, how: Justification): number {
+    const baseFont = ctx.font;
+
     let curY: number = y;
     if (ctx && text.length) {
         let lines: string[] = [];
@@ -59,36 +61,69 @@ export function RenderParagraph(ctx: CanvasRenderingContext2D, text: string, x: 
         const heightMeasure = ctx.measureText(text);
         const th = (heightMeasure.actualBoundingBoxDescent - heightMeasure.actualBoundingBoxAscent) * 1.5;
 
-        text.split(" ").forEach(function (word) {
-            const measure: TextMetrics = ctx.measureText(word);
-            if ((length + measure.width) > w) {
+        text.split("\n").forEach(function (line) {
+            line.split(" ").forEach(function (word) {
+                ctx.font = buildFont(baseFont, word);
+                const measure: TextMetrics = ctx.measureText(cropWord(word));
+                if ((length + measure.width) > w) {
+                    lines.push(currentLine.join(" "));
+                    currentLine.length = 0;
+                    length = 0;
+                }
+                length += measure.width + spaceWidth;
+                currentLine.push(word);
+            });
+            if (currentLine.length > 0) {
                 lines.push(currentLine.join(" "));
                 currentLine.length = 0;
                 length = 0;
             }
-            length += measure.width + spaceWidth;
-            currentLine.push(word);
         });
-        if (currentLine.length > 0) {
-            lines.push(currentLine.join(" "));
-        }
 
         for (let l of lines) {
             let measure = ctx.measureText(l);
             const tw = measure.width;
-            if (how == Justification.Center) {
-                ctx.fillText(l, x + Math.max((w - tw) / 2, 0), curY, w);
+            if (tw == 0) {
+                curY += th / 2;
+            } else {
+                let curX = 0;
+                l.split(" ").forEach(function (word) {
+                    ctx.font = buildFont(baseFont, word);
+                    word = cropWord(word);
+                    let measure = ctx.measureText(word);
+                    const curTw = measure.width;
+                    if (how == Justification.Center) {
+                        ctx.fillText(word, curX + x + Math.max((w - tw) / 2, 0), curY, w);
+                    } else if (how == Justification.Left) {
+                        ctx.fillText(word, curX + x, curY, w);
+                    } else if (how == Justification.Right) {
+                        ctx.fillText(word, curX + x + w - tw, curY, w);
+                    }
+                    curX += curTw + spaceWidth;
+                });
+                curY += th;
             }
-            else if (how == Justification.Left) {
-                ctx.fillText(l, x, curY, w);
-            }
-            else if (how == Justification.Right) {
-                ctx.fillText(l, x + w - tw, curY, w);
-            }
-            curY += th;
         }
     }
     return curY;
+}
+
+function buildFont(font: string, text: string) {
+    if (text.charAt(0) == "*") {
+        return 'bold' + ' ' + font;
+    } else if (text.charAt(0) == "_") {
+        return 'italic' + ' ' + font;
+    } else {
+        return font;
+    }
+}
+
+function cropWord(text: string) {
+    if (text.charAt(0) == "*" || text.charAt(0) == "_") {
+        return text.slice(1);
+    } else {
+        return text;
+    }
 }
 
 @Serializable()
@@ -157,7 +192,7 @@ export class Card {
         ctx.save();
         ctx.strokeStyle = 'grey';
         ctx.lineWidth = borderLineWidth;
-        this.drawBorder(ctx, borderX, borderY, borderWidth, borderHeight, textRegionHeight);
+        this.roundRect(ctx, borderX, borderY, borderWidth, borderHeight, 20, false, true);
         ctx.restore();
 
         const cardHeader = this._heading.toLocaleUpperCase();
@@ -189,13 +224,12 @@ export class Card {
 
         curY += textRegionHeight;
 
-        ctx.moveTo(marginXLeft, curY);
-        ctx.lineTo(marginXRight, curY);
-        ctx.stroke();
-
-        curY += borderY;
-
         if (this._fluff.length > 0) {
+            ctx.moveTo(marginXLeft, curY);
+            ctx.lineTo(marginXRight, curY);
+            ctx.stroke();
+            curY += borderY;
+
             ctx.save();
             ctx.font = this.fluffFont();
             ctx.fillStyle = 'black';
@@ -213,7 +247,7 @@ export class Card {
         ctx.save();
         ctx.font = this.ruleFont();
         ctx.fillStyle = 'black';
-        curY = RenderParagraph(ctx, this._rule, marginXLeft, curY, textWidth, Justification.Center);
+        curY = RenderParagraph(ctx, this._rule, marginXLeft, curY, textWidth, Justification.Left);
         ctx.restore();
 
         curY = this._height - borderY * 1.5 - textRegionHeight;
